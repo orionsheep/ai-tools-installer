@@ -34,16 +34,38 @@ def get_resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+def _broadcast_env_change():
+    """Tell Explorer & friends to reload the environment, so NEW terminals see
+    PATH changes immediately. Without this a logoff/reboot would be required."""
+    import ctypes
+    HWND_BROADCAST = 0xFFFF
+    WM_SETTINGCHANGE = 0x001A
+    SMTO_ABORTIFHUNG = 0x0002
+    try:
+        result = ctypes.c_ulong(0)
+        ctypes.windll.user32.SendMessageTimeoutW(
+            HWND_BROADCAST, WM_SETTINGCHANGE, 0, "Environment",
+            SMTO_ABORTIFHUNG, 5000, ctypes.byref(result))
+    except Exception:
+        pass
+
+
 def add_to_path_win(target_dir):
     import winreg
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_ALL_ACCESS)
-        current_path, _ = winreg.QueryValueEx(key, "PATH")
-        if target_dir not in current_path:
-            new_path = current_path + ";" + target_dir
-            winreg.SetValueEx(key, "PATH", 0, winreg.REG_EXPAND_SZ, new_path)
-            subprocess.run(["setx", "PATH", new_path], shell=True, stdout=subprocess.DEVNULL,
-                            creationflags=_NO_WINDOW_FLAGS)
+        try:
+            current_path, _ = winreg.QueryValueEx(key, "PATH")
+        except FileNotFoundError:
+            current_path = ""
+        entries = [e for e in current_path.split(";") if e.strip()]
+        if target_dir.lower() not in [e.lower() for e in entries]:
+            entries.append(target_dir)
+            # Write the registry directly — never `setx`: it truncates PATH at
+            # 1024 chars and flattens REG_EXPAND_SZ, silently corrupting it.
+            winreg.SetValueEx(key, "PATH", 0, winreg.REG_EXPAND_SZ, ";".join(entries))
+            _broadcast_env_change()
+        winreg.CloseKey(key)
     except Exception as e:
         print(f"Failed to update PATH: {e}")
 
@@ -114,6 +136,7 @@ def _ensure_node(app_dir):
     """Extract the bundled portable Node.js runtime once. Safe to call repeatedly."""
     node_dir = os.path.join(app_dir, "node")
     if os.path.exists(node_dir):
+        _expose_node_runtime(node_dir)
         return node_dir
 
     if IS_MAC:
@@ -134,7 +157,23 @@ def _ensure_node(app_dir):
             extracted_folder = zip_ref.namelist()[0].split('/')[0]
         shutil.move(os.path.join(app_dir, extracted_folder), node_dir)
 
+    _expose_node_runtime(node_dir)
     return node_dir
+
+
+def _expose_node_runtime(node_dir):
+    """Make node/npm/npx themselves usable from any terminal, not just the
+    tool shims — students need them for their own projects (npm install etc.)."""
+    bin_dir, _ = get_install_dirs()
+    if IS_WIN:
+        # node.exe / npm.cmd / npx.cmd all live in node_dir on Windows.
+        add_to_path_win(node_dir)
+    else:
+        for name in ("node", "npm", "npx"):
+            src = os.path.join(node_dir, "bin", name)
+            dst = os.path.join(bin_dir, name)
+            if os.path.exists(src) and not os.path.exists(dst):
+                os.symlink(src, dst)
 
 
 def _npm_bin(node_dir):
@@ -174,6 +213,8 @@ def _expose_shim(bin_dir, node_dir, shim_name):
     elif IS_WIN:
         node_shim = os.path.join(node_dir, shim_name + ".cmd")
         target_bat = os.path.join(bin_dir, shim_name + ".cmd")
+        if not os.path.exists(node_shim):
+            raise Exception(f"npm did not create the expected shim: {node_shim}")
         with open(target_bat, "w") as f:
             f.write(f'@echo off\n"{node_shim}" %*')
 
@@ -218,7 +259,7 @@ def install_gemini():
     if not tgz:
         raise Exception("Gemini CLI npm package not found in payload.")
 
-    _run_npm([npm_bin, "install", "-g", tgz], os.environ.copy())
+    _run_npm([npm_bin, "install", "-g", "--prefix", node_dir, tgz], os.environ.copy())
     _expose_shim(bin_dir, node_dir, "gemini")
 
 
@@ -231,7 +272,7 @@ def install_kimi():
     if not tgz:
         raise Exception("Kimi Code CLI npm package not found in payload.")
 
-    _run_npm([npm_bin, "install", "-g", tgz], os.environ.copy())
+    _run_npm([npm_bin, "install", "-g", "--prefix", node_dir, tgz], os.environ.copy())
     _expose_shim(bin_dir, node_dir, "kimi")
 
 
@@ -248,7 +289,7 @@ def install_feishu():
     if not tgz:
         raise Exception("Feishu (lark-cli) npm package not found in payload.")
 
-    _run_npm([npm_bin, "install", "-g", "--ignore-scripts", tgz], os.environ.copy())
+    _run_npm([npm_bin, "install", "-g", "--prefix", node_dir, "--ignore-scripts", tgz], os.environ.copy())
 
     if IS_MAC:
         pkg_bin_dir = os.path.join(node_dir, "lib", "node_modules", "@larksuite", "cli", "bin")
