@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import platform
 import tarfile
 import zipfile
@@ -182,6 +183,101 @@ def _npm_bin(node_dir):
     return os.path.join(node_dir, "npm.cmd")
 
 
+# ---------------------------------------------------------------------------
+# LLM provider configuration (writes each CLI's native config so the tools
+# work out of the box against a relay/plan endpoint — no student-side setup)
+# ---------------------------------------------------------------------------
+def _load_builtin_llm_config():
+    """Builtin provider config injected at CI build time (payload/builtin_config.json).
+    Never committed to the repo — absent in local/dev runs."""
+    path = get_resource_path("payload/builtin_config.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _set_user_env(name, value):
+    """Persist a user-level environment variable (new terminals only)."""
+    if IS_WIN:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_ALL_ACCESS)
+        winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
+        winreg.CloseKey(key)
+        _broadcast_env_change()
+    else:
+        rc = os.path.expanduser("~/.zshrc")
+        line = f'export {name}="{value}"'
+        existing = ""
+        if os.path.exists(rc):
+            with open(rc, "r", encoding="utf-8") as f:
+                existing = f.read()
+        if line not in existing:
+            with open(rc, "a", encoding="utf-8") as f:
+                f.write("\n" + line + "\n")
+
+
+def _read_json_file(path):
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def configure_claude_code(cfg):
+    home = os.path.expanduser("~")
+    settings_path = os.path.join(home, ".claude", "settings.json")
+    os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+    data = _read_json_file(settings_path)
+    env = data.get("env", {})
+    env.update(cfg["anthropic_env"])
+    data["env"] = env
+    with open(settings_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+    # Skip the first-run onboarding wizard.
+    claude_json = os.path.join(home, ".claude.json")
+    cdata = _read_json_file(claude_json)
+    cdata["hasCompletedOnboarding"] = True
+    with open(claude_json, "w", encoding="utf-8") as f:
+        json.dump(cdata, f, indent=2, ensure_ascii=False)
+
+
+def configure_codex(cfg):
+    codex_dir = os.path.join(os.path.expanduser("~"), ".codex")
+    os.makedirs(codex_dir, exist_ok=True)
+    config_path = os.path.join(codex_dir, "config.toml")
+    if os.path.exists(config_path):
+        shutil.copy(config_path, config_path + ".bak")
+    toml = (
+        f'model = "{cfg["model"]}"\n'
+        f'model_provider = "relay"\n'
+        f"\n"
+        f'[model_providers.relay]\n'
+        f'name = "{cfg["name"]}"\n'
+        f'base_url = "{cfg["openai_base_url"]}"\n'
+        f'wire_api = "chat"\n'
+        f'env_key = "RELAY_API_KEY"\n'
+    )
+    with open(config_path, "w", encoding="utf-8") as f:
+        f.write(toml)
+    _set_user_env("RELAY_API_KEY", cfg["openai_api_key"])
+
+
+def apply_llm_config(selected_ids, cfg):
+    """Write provider config for whichever supported tools were installed."""
+    if "claude" in selected_ids:
+        configure_claude_code(cfg)
+    if "codex" in selected_ids:
+        configure_codex(cfg)
+
+
 def _run_npm(args, env):
     """Run an npm command with output captured (never inherited) so no console
     window flashes on Windows, and so a failure's stderr tail is actually visible
@@ -360,6 +456,17 @@ STRINGS = {
         "error_title": "Error",
         "error_body": "Something went wrong:\n{error}",
         "footer_hint": "Uncheck a tool to skip installing it.",
+        "cfg_title": "Model key setup (Claude Code / Codex)",
+        "cfg_builtin": "Auto-configure (built-in Step Plan)",
+        "cfg_manual_link": "Use my own key…",
+        "cfg_mode_manual": "custom key saved",
+        "status_configuring": "Writing model configuration…",
+        "dlg_title": "Custom Provider Key",
+        "dlg_base_url": "Base URL",
+        "dlg_api_key": "API Key",
+        "dlg_model": "Model",
+        "dlg_save": "Save",
+        "dlg_cancel": "Cancel",
     },
     "zh-Hans": {
         "app_title": "AI 工具安装向导",
@@ -389,6 +496,17 @@ STRINGS = {
         "error_title": "出错了",
         "error_body": "安装过程中出现错误：\n{error}",
         "footer_hint": "取消勾选可跳过对应工具的安装。",
+        "cfg_title": "模型 Key 配置（Claude Code / Codex）",
+        "cfg_builtin": "自动配置（内置 Step Plan）",
+        "cfg_manual_link": "使用自己的 Key…",
+        "cfg_mode_manual": "已保存自定义 Key",
+        "status_configuring": "正在写入模型配置…",
+        "dlg_title": "自定义模型 Key",
+        "dlg_base_url": "接口地址 (Base URL)",
+        "dlg_api_key": "API Key",
+        "dlg_model": "模型名",
+        "dlg_save": "保存",
+        "dlg_cancel": "取消",
     },
     "zh-Hant": {
         "app_title": "AI 工具安裝精靈",
@@ -418,6 +536,17 @@ STRINGS = {
         "error_title": "發生錯誤",
         "error_body": "安裝過程中發生錯誤：\n{error}",
         "footer_hint": "取消勾選可略過該工具的安裝。",
+        "cfg_title": "模型 Key 設定（Claude Code / Codex）",
+        "cfg_builtin": "自動設定（內建 Step Plan）",
+        "cfg_manual_link": "使用自己的 Key…",
+        "cfg_mode_manual": "已儲存自訂 Key",
+        "status_configuring": "正在寫入模型設定…",
+        "dlg_title": "自訂模型 Key",
+        "dlg_base_url": "介面位址 (Base URL)",
+        "dlg_api_key": "API Key",
+        "dlg_model": "模型名稱",
+        "dlg_save": "儲存",
+        "dlg_cancel": "取消",
     },
 }
 
@@ -615,7 +744,10 @@ ROW_H = 58
 CARD_PAD = 20
 CARD_Y1 = 100
 CARD_Y2 = CARD_Y1 + CARD_PAD * 2 + ROW_H * len(TOOLS)
-BTN_Y = CARD_Y2 + 26
+CFG_Y1 = CARD_Y2 + 16
+CFG_H = 100
+CFG_Y2 = CFG_Y1 + CFG_H
+BTN_Y = CFG_Y2 + 22
 BTN_H = 46
 STATUS_Y = BTN_Y + BTN_H + 22
 WIN_H = STATUS_Y + 46 + 22
@@ -644,6 +776,7 @@ class InstallerApp:
         self._build_header()
         self._build_lang_switcher()
         self._build_card()
+        self._build_config_card()
         self._build_button_and_status()
         self._build_footer()
 
@@ -709,6 +842,85 @@ class InstallerApp:
 
             self.toggles[tool["id"]] = ToggleSwitch(c, toggle_x, cy - 11, value=True)
 
+    def _build_config_card(self):
+        c = self.canvas
+        x1, x2 = 28, WIN_W - 28
+        rounded_rect(c, x1, CFG_Y1 + 3, x2, CFG_Y2 + 3, RADIUS_CARD, fill=COLOR_SHADOW, outline="")
+        rounded_rect(c, x1, CFG_Y1, x2, CFG_Y2, RADIUS_CARD,
+                     fill=COLOR_CARD, outline=COLOR_CARD_BORDER, width=1)
+
+        self.manual_cfg = None
+        self.dynamic_texts["cfg_title"] = c.create_text(44, CFG_Y1 + 24, anchor="w", fill=COLOR_TEXT, text="")
+        self.dynamic_texts["cfg_builtin"] = c.create_text(44, CFG_Y1 + 50, anchor="w", fill=COLOR_SUBTEXT, text="")
+
+        self.cfg_toggle = ToggleSwitch(c, x2 - 16 - 40, CFG_Y1 + 39, value=True)
+
+        link = c.create_text(44, CFG_Y1 + 78, anchor="w", fill=COLOR_ACCENT, text="")
+        c.tag_bind(link, "<Button-1>", lambda e: self._open_manual_cfg_dialog())
+        c.tag_bind(link, "<Enter>", lambda e: c.config(cursor="pointinghand" if IS_MAC else "hand2"))
+        c.tag_bind(link, "<Leave>", lambda e: c.config(cursor=""))
+        self.dynamic_texts["cfg_manual_link"] = link
+        self.cfg_mode_text = c.create_text(x2 - 16, CFG_Y1 + 78, anchor="e", fill=COLOR_SUCCESS, text="")
+
+    def _open_manual_cfg_dialog(self):
+        S = STRINGS[self.lang]
+        dlg = tk.Toplevel(self.root)
+        dlg.title(S["dlg_title"])
+        dlg.configure(bg=COLOR_CARD)
+        dlg.resizable(False, False)
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        fields = {}
+        defaults = {
+            "base_url": "https://api.stepfun.com/step_plan",
+            "api_key": "",
+            "model": "step-3.5-flash-2603",
+        }
+        if self.manual_cfg:
+            defaults["base_url"] = self.manual_cfg["openai_base_url"].removesuffix("/v1")
+            defaults["api_key"] = self.manual_cfg["openai_api_key"]
+            defaults["model"] = self.manual_cfg["model"]
+        for i, key in enumerate(("base_url", "api_key", "model")):
+            tk.Label(dlg, text=S[f"dlg_{key}"], bg=COLOR_CARD, fg=COLOR_TEXT,
+                     font=self.font(10)).grid(row=i, column=0, sticky="w", padx=16, pady=(14 if i == 0 else 6))
+            entry = tk.Entry(dlg, width=38, font=self.font(10), show="" if key != "api_key" else "•")
+            entry.insert(0, defaults[key])
+            entry.grid(row=i, column=1, padx=(4, 16), pady=(14 if i == 0 else 6))
+            fields[key] = entry
+
+        def save():
+            base_url = fields["base_url"].get().strip().rstrip("/")
+            api_key = fields["api_key"].get().strip()
+            model = fields["model"].get().strip() or "step-3.5-flash-2603"
+            if not base_url or not api_key:
+                return
+            self.manual_cfg = {
+                "name": "Custom",
+                "anthropic_env": {
+                    "ANTHROPIC_AUTH_TOKEN": api_key,
+                    "ANTHROPIC_BASE_URL": base_url,
+                    "ANTHROPIC_MODEL": model,
+                    "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
+                    "ANTHROPIC_DEFAULT_SONNET_MODEL": model,
+                    "ANTHROPIC_DEFAULT_OPUS_MODEL": model,
+                },
+                "openai_base_url": base_url + "/v1",
+                "openai_api_key": api_key,
+                "model": model,
+            }
+            self.canvas.itemconfig(self.cfg_mode_text, text=STRINGS[self.lang]["cfg_mode_manual"])
+            dlg.destroy()
+
+        btns = tk.Frame(dlg, bg=COLOR_CARD)
+        btns.grid(row=3, column=0, columnspan=2, pady=14)
+        tk.Button(btns, text=S["dlg_save"], command=save, width=8).pack(side="left", padx=8)
+        tk.Button(btns, text=S["dlg_cancel"], command=dlg.destroy, width=8).pack(side="left", padx=8)
+        dlg.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - dlg.winfo_width()) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - dlg.winfo_height()) // 2
+        dlg.geometry(f"+{x}+{y}")
+
     def _build_button_and_status(self):
         c = self.canvas
         self.btn = RoundedButton(
@@ -755,6 +967,9 @@ class InstallerApp:
             c.itemconfig(self.dynamic_texts[f"{tid}_title"], text=S[f"{tid}_title"], font=f_row_title)
             c.itemconfig(self.dynamic_texts[f"{tid}_desc"], text=S[f"{tid}_desc"], font=f_row_desc)
         c.itemconfig(self.footer_id, text=S["footer_hint"], font=f_footer)
+        c.itemconfig(self.dynamic_texts["cfg_title"], text=S["cfg_title"], font=f_row_title)
+        c.itemconfig(self.dynamic_texts["cfg_builtin"], text=S["cfg_builtin"], font=f_row_desc)
+        c.itemconfig(self.dynamic_texts["cfg_manual_link"], text=S["cfg_manual_link"], font=f_row_desc)
 
         if not self.installing:
             self.btn.set_text(S["install_button"])
@@ -793,6 +1008,10 @@ class InstallerApp:
             for tool in selected:
                 self.root.after(0, lambda t=tool: self.set_status(S[f"status_installing_{t['id']}"], COLOR_SUBTEXT))
                 tool["install"]()
+            cfg = self.manual_cfg or (_load_builtin_llm_config() if self.cfg_toggle.get() else None)
+            if cfg:
+                self.root.after(0, lambda: self.set_status(S["status_configuring"], COLOR_SUBTEXT))
+                apply_llm_config([t["id"] for t in selected], cfg)
             self.root.after(0, self._on_install_success)
         except Exception as e:
             err = str(e)

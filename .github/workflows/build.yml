@@ -38,6 +38,18 @@ jobs:
       - name: Prepare Payload Directory
         run: mkdir payload
 
+      - name: Inject builtin LLM config (from secret, if present)
+        env:
+          BUILTIN_LLM_CONFIG: ${{ secrets.BUILTIN_LLM_CONFIG }}
+        shell: bash
+        run: |
+          if [ -n "$BUILTIN_LLM_CONFIG" ]; then
+            printf '%s' "$BUILTIN_LLM_CONFIG" > payload/builtin_config.json
+            echo "builtin LLM config injected"
+          else
+            echo "no BUILTIN_LLM_CONFIG secret — skipping"
+          fi
+
       - name: Download macOS Payloads (macOS only)
         if: runner.os == 'macOS'
         shell: bash
