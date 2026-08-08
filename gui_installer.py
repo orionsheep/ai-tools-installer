@@ -255,14 +255,17 @@ def configure_codex(cfg):
     config_path = os.path.join(codex_dir, "config.toml")
     if os.path.exists(config_path):
         shutil.copy(config_path, config_path + ".bak")
+    # Codex removed wire_api="chat" (openai/codex#7782) — must use the
+    # Responses API, and the model must be enabled for it (step-3.7-flash is,
+    # step-3.5-flash-2603 is not).
     toml = (
-        f'model = "{cfg["model"]}"\n'
+        f'model = "{cfg.get("codex_model", cfg["model"])}"\n'
         f'model_provider = "relay"\n'
         f"\n"
         f'[model_providers.relay]\n'
         f'name = "{cfg["name"]}"\n'
         f'base_url = "{cfg["openai_base_url"]}"\n'
-        f'wire_api = "chat"\n'
+        f'wire_api = "responses"\n'
         f'env_key = "RELAY_API_KEY"\n'
     )
     with open(config_path, "w", encoding="utf-8") as f:
@@ -437,6 +440,7 @@ STRINGS = {
         "dlg_base_url": "Base URL",
         "dlg_api_key": "API Key",
         "dlg_model": "Model",
+        "dlg_codex_model": "Codex model (Responses API)",
         "dlg_save": "Save",
         "dlg_cancel": "Cancel",
     },
@@ -471,6 +475,7 @@ STRINGS = {
         "dlg_base_url": "接口地址 (Base URL)",
         "dlg_api_key": "API Key",
         "dlg_model": "模型名",
+        "dlg_codex_model": "Codex 模型（需支持 Responses）",
         "dlg_save": "保存",
         "dlg_cancel": "取消",
     },
@@ -505,6 +510,7 @@ STRINGS = {
         "dlg_base_url": "介面位址 (Base URL)",
         "dlg_api_key": "API Key",
         "dlg_model": "模型名稱",
+        "dlg_codex_model": "Codex 模型（需支援 Responses）",
         "dlg_save": "儲存",
         "dlg_cancel": "取消",
     },
@@ -836,12 +842,14 @@ class InstallerApp:
             "base_url": "https://api.stepfun.com/step_plan",
             "api_key": "",
             "model": "step-3.5-flash-2603",
+            "codex_model": "step-3.7-flash",
         }
         if self.manual_cfg:
             defaults["base_url"] = self.manual_cfg["openai_base_url"].removesuffix("/v1")
             defaults["api_key"] = self.manual_cfg["openai_api_key"]
             defaults["model"] = self.manual_cfg["model"]
-        for i, key in enumerate(("base_url", "api_key", "model")):
+            defaults["codex_model"] = self.manual_cfg.get("codex_model", "step-3.7-flash")
+        for i, key in enumerate(("base_url", "api_key", "model", "codex_model")):
             tk.Label(dlg, text=S[f"dlg_{key}"], bg=COLOR_CARD, fg=COLOR_TEXT,
                      font=self.font(10)).grid(row=i, column=0, sticky="w", padx=16, pady=(14 if i == 0 else 6))
             entry = tk.Entry(dlg, width=38, font=self.font(10), show="" if key != "api_key" else "•")
@@ -853,6 +861,7 @@ class InstallerApp:
             base_url = fields["base_url"].get().strip().rstrip("/")
             api_key = fields["api_key"].get().strip()
             model = fields["model"].get().strip() or "step-3.5-flash-2603"
+            codex_model = fields["codex_model"].get().strip() or "step-3.7-flash"
             if not base_url or not api_key:
                 return
             self.manual_cfg = {
@@ -868,12 +877,13 @@ class InstallerApp:
                 "openai_base_url": base_url + "/v1",
                 "openai_api_key": api_key,
                 "model": model,
+                "codex_model": codex_model,
             }
             self.canvas.itemconfig(self.cfg_mode_text, text=STRINGS[self.lang]["cfg_mode_manual"])
             dlg.destroy()
 
         btns = tk.Frame(dlg, bg=COLOR_CARD)
-        btns.grid(row=3, column=0, columnspan=2, pady=14)
+        btns.grid(row=4, column=0, columnspan=2, pady=14)
         tk.Button(btns, text=S["dlg_save"], command=save, width=8).pack(side="left", padx=8)
         tk.Button(btns, text=S["dlg_cancel"], command=dlg.destroy, width=8).pack(side="left", padx=8)
         dlg.update_idletasks()
