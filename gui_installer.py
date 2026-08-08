@@ -179,16 +179,34 @@ def _expose_shim(bin_dir, node_dir, shim_name):
 
 
 def install_claude_code():
+    """Claude Code v2's npm package is only a thin wrapper — the real binary
+    lives in a platform-specific optionalDependency
+    (@anthropic-ai/claude-code-<os>-<arch>) that npm downloads from the
+    registry at install time, which breaks fully-offline installs. We bundle
+    that platform package in payload/ instead and extract its standalone
+    binary directly: no Node.js, no npm, no network."""
     bin_dir, app_dir = get_install_dirs()
-    node_dir = _ensure_node(app_dir)
-    npm_bin = _npm_bin(node_dir)
 
-    tgz = _find_payload_tgz("anthropic-ai-claude-code")
+    if IS_MAC:
+        prefix = "anthropic-ai-claude-code-darwin-arm64" if IS_ARM else "anthropic-ai-claude-code-darwin-x64"
+        bin_name = "claude"
+    elif IS_WIN:
+        prefix = "anthropic-ai-claude-code-win32-x64"
+        bin_name = "claude.exe"
+    else:
+        raise Exception("Unsupported OS")
+
+    tgz = _find_payload_tgz(prefix)
     if not tgz:
-        raise Exception("Claude Code npm package not found in payload.")
+        raise Exception("Claude Code native package not found in payload.")
 
-    _run_npm([npm_bin, "install", "-g", tgz], os.environ.copy())
-    _expose_shim(bin_dir, node_dir, "claude")
+    target = os.path.join(bin_dir, bin_name)
+    with tarfile.open(tgz, "r:gz") as tf:
+        src = tf.extractfile(tf.getmember("package/" + bin_name))
+        with open(target, "wb") as out:
+            shutil.copyfileobj(src, out)
+    if not IS_WIN:
+        os.chmod(target, 0o755)
 
 
 def install_gemini():

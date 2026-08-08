@@ -56,7 +56,9 @@ jobs:
           curl -sL "https://github.com/larksuite/cli/releases/download/v${LARK_VERSION}/lark-cli-${LARK_VERSION}-darwin-amd64.tar.gz" -o payload/lark-cli-mac-x64.tar.gz
 
           cd payload
-          npm pack @anthropic-ai/claude-code
+          CC_VERSION=$(npm view @anthropic-ai/claude-code version)
+          npm pack @anthropic-ai/claude-code-darwin-arm64@$CC_VERSION
+          npm pack @anthropic-ai/claude-code-darwin-x64@$CC_VERSION
           npm pack @google/gemini-cli
           npm pack @moonshot-ai/kimi-code
           npm pack @larksuite/cli@$LARK_VERSION
@@ -72,7 +74,8 @@ jobs:
           curl -sL "https://github.com/larksuite/cli/releases/download/v${LARK_VERSION}/lark-cli-${LARK_VERSION}-windows-amd64.zip" -o payload/lark-cli-win-x64.zip
 
           cd payload
-          npm pack @anthropic-ai/claude-code
+          CC_VERSION=$(npm view @anthropic-ai/claude-code version)
+          npm pack @anthropic-ai/claude-code-win32-x64@$CC_VERSION
           npm pack @google/gemini-cli
           npm pack @moonshot-ai/kimi-code
           npm pack @larksuite/cli@$LARK_VERSION
