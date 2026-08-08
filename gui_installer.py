@@ -270,12 +270,42 @@ def configure_codex(cfg):
     _set_user_env("RELAY_API_KEY", cfg["openai_api_key"])
 
 
+def configure_kimi(cfg):
+    """Kimi Code reads ~/.kimi-code/config.toml only (never shell env vars).
+    Step's endpoint speaks the Anthropic Messages protocol, so we register it
+    as an `anthropic` provider with a default model alias."""
+    kimi_dir = os.path.join(os.path.expanduser("~"), ".kimi-code")
+    os.makedirs(kimi_dir, exist_ok=True)
+    config_path = os.path.join(kimi_dir, "config.toml")
+    if os.path.exists(config_path):
+        shutil.copy(config_path, config_path + ".bak")
+    env = cfg["anthropic_env"]
+    toml = (
+        f'default_model = "relay/step"\n'
+        f"\n"
+        f'[providers.relay]\n'
+        f'type = "anthropic"\n'
+        f'base_url = "{env["ANTHROPIC_BASE_URL"]}"\n'
+        f'api_key = "{env["ANTHROPIC_AUTH_TOKEN"]}"\n'
+        f"\n"
+        f'[models."relay/step"]\n'
+        f'provider = "relay"\n'
+        f'model = "{cfg["model"]}"\n'
+        f'max_context_size = 262144\n'
+        f'capabilities = [ "thinking", "tool_use" ]\n'
+    )
+    with open(config_path, "w", encoding="utf-8") as f:
+        f.write(toml)
+
+
 def apply_llm_config(selected_ids, cfg):
     """Write provider config for whichever supported tools were installed."""
     if "claude" in selected_ids:
         configure_claude_code(cfg)
     if "codex" in selected_ids:
         configure_codex(cfg)
+    if "kimi" in selected_ids:
+        configure_kimi(cfg)
 
 
 def _run_npm(args, env):
@@ -346,19 +376,6 @@ def install_claude_code():
         os.chmod(target, 0o755)
 
 
-def install_gemini():
-    bin_dir, app_dir = get_install_dirs()
-    node_dir = _ensure_node(app_dir)
-    npm_bin = _npm_bin(node_dir)
-
-    tgz = _find_payload_tgz("google-gemini-cli")
-    if not tgz:
-        raise Exception("Gemini CLI npm package not found in payload.")
-
-    _run_npm([npm_bin, "install", "-g", "--prefix", node_dir, tgz], os.environ.copy())
-    _expose_shim(bin_dir, node_dir, "gemini")
-
-
 def install_kimi():
     bin_dir, app_dir = get_install_dirs()
     node_dir = _ensure_node(app_dir)
@@ -372,52 +389,13 @@ def install_kimi():
     _expose_shim(bin_dir, node_dir, "kimi")
 
 
-def install_feishu():
-    """@larksuite/cli ships a Go binary. Its postinstall script downloads that binary
-    from GitHub over the network, which would break an offline install — so we skip
-    that script (--ignore-scripts) and place the binary (bundled in payload/, fetched
-    during the CI build) into the exact path the package's own launcher expects."""
-    bin_dir, app_dir = get_install_dirs()
-    node_dir = _ensure_node(app_dir)
-    npm_bin = _npm_bin(node_dir)
-
-    tgz = _find_payload_tgz("larksuite-cli")
-    if not tgz:
-        raise Exception("Feishu (lark-cli) npm package not found in payload.")
-
-    _run_npm([npm_bin, "install", "-g", "--prefix", node_dir, "--ignore-scripts", tgz], os.environ.copy())
-
-    if IS_MAC:
-        pkg_bin_dir = os.path.join(node_dir, "lib", "node_modules", "@larksuite", "cli", "bin")
-        filename = "lark-cli-mac-arm64.tar.gz" if IS_ARM else "lark-cli-mac-x64.tar.gz"
-        archive_path = get_resource_path(f"payload/{filename}")
-        if not os.path.exists(archive_path):
-            raise Exception(f"macOS lark-cli payload not found: {filename}")
-        os.makedirs(pkg_bin_dir, exist_ok=True)
-        with tarfile.open(archive_path, "r:gz") as tar:
-            tar.extractall(path=pkg_bin_dir)
-        os.chmod(os.path.join(pkg_bin_dir, "lark-cli"), 0o755)
-    elif IS_WIN:
-        pkg_bin_dir = os.path.join(node_dir, "node_modules", "@larksuite", "cli", "bin")
-        archive_path = get_resource_path("payload/lark-cli-win-x64.zip")
-        if not os.path.exists(archive_path):
-            raise Exception("Windows lark-cli payload not found.")
-        os.makedirs(pkg_bin_dir, exist_ok=True)
-        with zipfile.ZipFile(archive_path, "r") as zip_ref:
-            zip_ref.extractall(path=pkg_bin_dir)
-
-    _expose_shim(bin_dir, node_dir, "lark-cli")
-
-
 # ---------------------------------------------------------------------------
 # Tool registry — drives both the GUI rows and the install worker
 # ---------------------------------------------------------------------------
 TOOLS = [
     {"id": "codex", "icon": "C", "color": "#3B82C4", "install": install_codex},
     {"id": "claude", "icon": "A", "color": "#CC785C", "install": install_claude_code},
-    {"id": "gemini", "icon": "G", "color": "#8B5CF6", "install": install_gemini},
     {"id": "kimi", "icon": "K", "color": "#0EA5A6", "install": install_kimi},
-    {"id": "feishu", "icon": "L", "color": "#3370FF", "install": install_feishu},
 ]
 
 
@@ -430,25 +408,19 @@ LANG_LABELS = {"en": "EN", "zh-Hans": "简", "zh-Hant": "繁"}
 STRINGS = {
     "en": {
         "app_title": "AI Tools Installer",
-        "app_subtitle": "Set up 5 AI coding CLIs — fully offline",
+        "app_subtitle": "Set up 3 AI coding CLIs — fully offline",
         "codex_title": "Codex CLI",
         "codex_desc": "OpenAI's coding agent for your terminal",
         "claude_title": "Claude Code CLI",
         "claude_desc": "Anthropic's coding agent for your terminal",
-        "gemini_title": "Gemini CLI",
-        "gemini_desc": "Google's coding agent for your terminal",
         "kimi_title": "Kimi Code CLI",
         "kimi_desc": "Moonshot AI's coding agent for your terminal",
-        "feishu_title": "Lark CLI",
-        "feishu_desc": "Official CLI for Feishu/Lark AI agents",
         "install_button": "Install Now",
         "installing_button": "Installing…",
         "status_idle": "",
         "status_installing_codex": "Installing Codex CLI…",
         "status_installing_claude": "Installing Claude Code (Node.js)…",
-        "status_installing_gemini": "Installing Gemini CLI (Node.js)…",
         "status_installing_kimi": "Installing Kimi Code CLI (Node.js)…",
-        "status_installing_feishu": "Installing Lark CLI (Node.js)…",
         "status_done": "Installation complete",
         "status_failed": "Installation failed",
         "success_title": "Success",
@@ -456,7 +428,7 @@ STRINGS = {
         "error_title": "Error",
         "error_body": "Something went wrong:\n{error}",
         "footer_hint": "Uncheck a tool to skip installing it.",
-        "cfg_title": "Model key setup (Claude Code / Codex)",
+        "cfg_title": "Model key setup (Claude Code / Codex / Kimi Code)",
         "cfg_builtin": "Auto-configure (built-in Step Plan)",
         "cfg_manual_link": "Use my own key…",
         "cfg_mode_manual": "custom key saved",
@@ -470,25 +442,19 @@ STRINGS = {
     },
     "zh-Hans": {
         "app_title": "AI 工具安装向导",
-        "app_subtitle": "离线安装 5 款 AI 编程 CLI",
+        "app_subtitle": "离线安装 3 款 AI 编程 CLI",
         "codex_title": "Codex CLI",
         "codex_desc": "OpenAI 出品的终端编程助手",
         "claude_title": "Claude Code CLI",
         "claude_desc": "Anthropic 出品的终端编程助手",
-        "gemini_title": "Gemini CLI",
-        "gemini_desc": "Google 出品的终端编程助手",
         "kimi_title": "Kimi Code CLI",
         "kimi_desc": "Moonshot AI 出品的终端编程助手",
-        "feishu_title": "飞书 CLI",
-        "feishu_desc": "飞书官方 CLI，让 AI Agent 直接操作你的飞书",
         "install_button": "立即安装",
         "installing_button": "安装中…",
         "status_idle": "",
         "status_installing_codex": "正在安装 Codex CLI…",
         "status_installing_claude": "正在安装 Claude Code (Node.js)…",
-        "status_installing_gemini": "正在安装 Gemini CLI (Node.js)…",
         "status_installing_kimi": "正在安装 Kimi Code CLI (Node.js)…",
-        "status_installing_feishu": "正在安装飞书 CLI (Node.js)…",
         "status_done": "安装完成",
         "status_failed": "安装失败",
         "success_title": "安装成功",
@@ -496,7 +462,7 @@ STRINGS = {
         "error_title": "出错了",
         "error_body": "安装过程中出现错误：\n{error}",
         "footer_hint": "取消勾选可跳过对应工具的安装。",
-        "cfg_title": "模型 Key 配置（Claude Code / Codex）",
+        "cfg_title": "模型 Key 配置（Claude Code / Codex / Kimi Code）",
         "cfg_builtin": "自动配置（内置 Step Plan）",
         "cfg_manual_link": "使用自己的 Key…",
         "cfg_mode_manual": "已保存自定义 Key",
@@ -510,25 +476,19 @@ STRINGS = {
     },
     "zh-Hant": {
         "app_title": "AI 工具安裝精靈",
-        "app_subtitle": "離線安裝 5 款 AI 程式設計 CLI",
+        "app_subtitle": "離線安裝 3 款 AI 程式設計 CLI",
         "codex_title": "Codex CLI",
         "codex_desc": "OpenAI 推出的終端機程式設計助手",
         "claude_title": "Claude Code CLI",
         "claude_desc": "Anthropic 推出的終端機程式設計助手",
-        "gemini_title": "Gemini CLI",
-        "gemini_desc": "Google 推出的終端機程式設計助手",
         "kimi_title": "Kimi Code CLI",
         "kimi_desc": "Moonshot AI 推出的終端機程式設計助手",
-        "feishu_title": "飛書 CLI",
-        "feishu_desc": "飛書官方 CLI，讓 AI Agent 直接操作你的飛書",
         "install_button": "立即安裝",
         "installing_button": "安裝中…",
         "status_idle": "",
         "status_installing_codex": "正在安裝 Codex CLI…",
         "status_installing_claude": "正在安裝 Claude Code (Node.js)…",
-        "status_installing_gemini": "正在安裝 Gemini CLI (Node.js)…",
         "status_installing_kimi": "正在安裝 Kimi Code CLI (Node.js)…",
-        "status_installing_feishu": "正在安裝飛書 CLI (Node.js)…",
         "status_done": "安裝完成",
         "status_failed": "安裝失敗",
         "success_title": "安裝成功",
@@ -536,7 +496,7 @@ STRINGS = {
         "error_title": "發生錯誤",
         "error_body": "安裝過程中發生錯誤：\n{error}",
         "footer_hint": "取消勾選可略過該工具的安裝。",
-        "cfg_title": "模型 Key 設定（Claude Code / Codex）",
+        "cfg_title": "模型 Key 設定（Claude Code / Codex / Kimi Code）",
         "cfg_builtin": "自動設定（內建 Step Plan）",
         "cfg_manual_link": "使用自己的 Key…",
         "cfg_mode_manual": "已儲存自訂 Key",
