@@ -16,6 +16,7 @@ jobs:
   smoke:
     name: Clean-machine end-to-end test (Windows)
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4

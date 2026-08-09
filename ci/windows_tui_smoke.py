@@ -38,22 +38,34 @@ def main():
     print(f"spawning: {shim} (in ConPTY)", flush=True)
     proc = PtyProcess.spawn(["cmd.exe", "/c", shim], dimensions=(30, 120), env=env)
 
-    buf = b""
+    # PtyProcess.read() BLOCKS when the TUI goes idle — pump it on a daemon
+    # thread so the watchdog below can always fire.
+    chunks = []
+    import threading
+
+    def _pump():
+        while True:
+            try:
+                data = proc.read()
+            except Exception:
+                return
+            if not data:
+                return
+            chunks.append(data if isinstance(data, bytes) else data.encode())
+
+    threading.Thread(target=_pump, daemon=True).start()
+
     deadline = time.time() + WATCH_SECONDS
     while time.time() < deadline:
-        try:
-            chunk = proc.read()
-            if chunk:
-                buf += chunk if isinstance(chunk, bytes) else chunk.encode()
-        except EOFError:
-            break
-        except Exception:
-            pass
-        if not proc.isalive():
-            break
-        time.sleep(0.3)
+        text_now = b"".join(chunks).decode("utf-8", errors="replace")
+        if any(m in text_now for m in TUI_MARKERS):
+            break  # TUI rendered — no need to watch longer
+        if not proc.isalive() and chunks:
+            break  # exited with output (or silence) already captured
+        time.sleep(0.5)
 
     alive = proc.isalive()
+    buf = b"".join(chunks)
     text = buf.decode("utf-8", errors="replace")
     print(f"\n--- captured {len(buf)} bytes, process alive={alive} ---", flush=True)
     # Strip ANSI escapes for the log dump.
