@@ -183,6 +183,16 @@ def _npm_bin(node_dir):
     return os.path.join(node_dir, "npm.cmd")
 
 
+def _npm_env(node_dir):
+    """Env for npm subprocesses: put the bundled node on PATH so lifecycle
+    scripts (postinstall etc.) that shell out to `node` can find it — the
+    portable runtime is otherwise invisible to child processes."""
+    env = os.environ.copy()
+    extra = node_dir if IS_WIN else os.path.join(node_dir, "bin")
+    env["PATH"] = extra + os.pathsep + env.get("PATH", "")
+    return env
+
+
 # ---------------------------------------------------------------------------
 # LLM provider configuration (writes each CLI's native config so the tools
 # work out of the box against a relay/plan endpoint — no student-side setup)
@@ -388,7 +398,7 @@ def install_kimi():
     if not tgz:
         raise Exception("Kimi Code CLI npm package not found in payload.")
 
-    _run_npm([npm_bin, "install", "-g", "--prefix", node_dir, tgz], os.environ.copy())
+    _run_npm([npm_bin, "install", "-g", "--prefix", node_dir, tgz], _npm_env(node_dir))
     _expose_shim(bin_dir, node_dir, "kimi")
 
 
