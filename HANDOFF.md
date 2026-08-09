@@ -38,7 +38,7 @@ git tag v1.0.0-buildN          # tag 以 v 开头即触发构建
 git push origin main v1.0.0-buildN
 ```
 
-约 3 分钟后，` Releases ` 页面自动出现新的 `AI_Tools_Installer_Windows.exe` 和 mac dmg。
+约 3 分钟后，` Releases ` 页面自动出现新的 `AI_Tools_Installer_Windows_<tag>.exe` 和 mac dmg（文件名带版本号，如 `..._v1.0.0-build10.exe`）。
 
 学员侧只发这一个链接即可（永远指向最新版）：
 

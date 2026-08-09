@@ -14,9 +14,7 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            artifact_name: AI_Tools_Installer_macOS.dmg
           - os: windows-latest
-            artifact_name: AI_Tools_Installer_Windows.exe
 
     steps:
       - name: Checkout Code
@@ -90,22 +88,22 @@ jobs:
         run: |
           pyinstaller --windowed --noconfirm --name "AI Tools Installer" --add-data "payload:payload" gui_installer.py
           cd dist
-          hdiutil create -volname "AI Tools Installer" -srcfolder "AI Tools Installer.app" -ov -format UDZO "AI_Tools_Installer_macOS.dmg"
-          mv "AI_Tools_Installer_macOS.dmg" ../
+          hdiutil create -volname "AI Tools Installer" -srcfolder "AI Tools Installer.app" -ov -format UDZO "AI_Tools_Installer_macOS_${{ github.ref_name }}.dmg"
+          mv "AI_Tools_Installer_macOS_${{ github.ref_name }}.dmg" ../
 
       - name: Build Windows EXE
         if: runner.os == 'Windows'
         run: |
           pyinstaller --windowed --onefile --noconfirm --name "AI Tools Installer" --add-data "payload;payload" gui_installer.py
-          move "dist\AI Tools Installer.exe" AI_Tools_Installer_Windows.exe
+          move "dist\AI Tools Installer.exe" "AI_Tools_Installer_Windows_${{ github.ref_name }}.exe"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: installer-${{ runner.os }}
           path: |
-            AI_Tools_Installer_macOS.dmg
-            AI_Tools_Installer_Windows.exe
+            AI_Tools_Installer_macOS_*.dmg
+            AI_Tools_Installer_Windows_*.exe
           if-no-files-found: ignore
 
   release:

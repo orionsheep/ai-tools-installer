@@ -334,6 +334,10 @@ def configure_kimi(cfg):
     )
     with open(config_path, "w", encoding="utf-8") as f:
         f.write(toml)
+    # Pin to the bundled version: kimi's self-updater can background-install a
+    # new release behind our backs (and its preflight can exit the process) —
+    # both break the offline-payload model and a config format we validated.
+    _set_user_env("KIMI_CODE_NO_AUTO_UPDATE", "1")
 
 
 def apply_llm_config(selected_ids, cfg):
@@ -366,8 +370,12 @@ def _find_payload_tgz(prefix):
     return None
 
 
-def _expose_shim(bin_dir, node_dir, shim_name):
-    """Expose a shim created inside node_dir by `npm install -g` via bin_dir (on PATH)."""
+def _expose_shim(bin_dir, node_dir, shim_name, stderr_log=None):
+    """Expose a shim created inside node_dir by `npm install -g` via bin_dir (on PATH).
+
+    stderr_log: when set, the Windows shim appends the tool's stderr and exit
+    code to that file — turns a "silently does nothing" report from a
+    non-technical tester into an actual error log they can send back."""
     if IS_MAC:
         node_shim = os.path.join(node_dir, "bin", shim_name)
         target_link = os.path.join(bin_dir, shim_name)
@@ -380,7 +388,11 @@ def _expose_shim(bin_dir, node_dir, shim_name):
         if not os.path.exists(node_shim):
             raise Exception(f"npm did not create the expected shim: {node_shim}")
         with open(target_bat, "w") as f:
-            f.write(f'@echo off\n"{node_shim}" %*')
+            if stderr_log:
+                f.write(f'@echo off\n"{node_shim}" %* 2>>"{stderr_log}"\n'
+                        f'@echo exit=%ERRORLEVEL%>>"{stderr_log}"')
+            else:
+                f.write(f'@echo off\n"{node_shim}" %*')
 
 
 def install_claude_code():
@@ -434,7 +446,10 @@ def install_kimi():
             os.remove(stale_shim)
 
     _run_npm([npm_bin, "install", "-g", "--prefix", node_dir, tgz], _npm_env(node_dir))
-    _expose_shim(bin_dir, node_dir, "kimi")
+    # Log stderr + exit code — kimi has been observed exiting silently on some
+    # machines, and this log is the only way to see why.
+    _expose_shim(bin_dir, node_dir, "kimi",
+                 stderr_log=os.path.join(os.path.expanduser("~"), "kimi-stderr.log"))
 
 
 # ---------------------------------------------------------------------------
