@@ -57,3 +57,8 @@ jobs:
 
       - name: Run end-to-end smoke test
         run: python ci/windows_smoke.py
+
+      - name: Run interactive TUI smoke test (kimi, ConPTY)
+        run: |
+          pip install pywinpty
+          python ci/windows_tui_smoke.py

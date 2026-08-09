@@ -389,7 +389,7 @@ def _expose_shim(bin_dir, node_dir, shim_name, stderr_log=None):
             raise Exception(f"npm did not create the expected shim: {node_shim}")
         with open(target_bat, "w") as f:
             if stderr_log:
-                f.write(f'@echo off\n"{node_shim}" %* 2>>"{stderr_log}"\n'
+                f.write(f'@echo off\ncall "{node_shim}" %* 2>>"{stderr_log}"\n'
                         f'@echo exit=%ERRORLEVEL%>>"{stderr_log}"')
             else:
                 f.write(f'@echo off\n"{node_shim}" %*')
