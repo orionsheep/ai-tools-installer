@@ -13,6 +13,10 @@ import os
 import sys
 import time
 
+# Runner consoles are cp1252 — TUI output contains CJK/box-drawing chars.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 WATCH_SECONDS = 30
