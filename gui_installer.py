@@ -197,6 +197,30 @@ def _expose_node_runtime(node_dir):
                 os.symlink(src, dst)
 
 
+def _ensure_gitbash(app_dir):
+    """Kimi Code hard-requires Git Bash on Windows — its startup environment
+    probe throws 'Git Bash was not found' and the process dies. Student
+    machines usually have no Git for Windows, and MinGit ships no bash, so we
+    bundle usr/bin+etc carved out of PortableGit (~15MB) and point
+    KIMI_SHELL_PATH at it (see configure_kimi)."""
+    if not IS_WIN:
+        return None
+    git_dir = os.path.join(app_dir, "git")
+    bash = os.path.join(git_dir, "usr", "bin", "bash.exe")
+    if os.path.exists(bash):
+        return bash
+    archive_path = get_resource_path("payload/gitbash-win-x64.zip")
+    if not os.path.exists(archive_path):
+        raise Exception("Git Bash payload not found.")
+    tmp = git_dir + ".tmp"
+    shutil.rmtree(tmp, ignore_errors=True)
+    with zipfile.ZipFile(archive_path, "r") as z:
+        z.extractall(tmp)
+    shutil.rmtree(git_dir, ignore_errors=True)
+    shutil.move(tmp, git_dir)
+    return bash
+
+
 def _npm_bin(node_dir):
     if IS_MAC:
         return os.path.join(node_dir, "bin", "npm")
@@ -338,6 +362,13 @@ def configure_kimi(cfg):
     # new release behind our backs (and its preflight can exit the process) —
     # both break the offline-payload model and a config format we validated.
     _set_user_env("KIMI_CODE_NO_AUTO_UPDATE", "1")
+    # Point kimi at the bundled Git Bash — without a bash.exe on the host,
+    # kimi's startup probe kills the process before anything renders.
+    if IS_WIN:
+        bash = os.path.join(os.environ["LOCALAPPDATA"], "Programs",
+                            "ai_tools_env", "git", "usr", "bin", "bash.exe")
+        if os.path.exists(bash):
+            _set_user_env("KIMI_SHELL_PATH", bash)
 
 
 def apply_llm_config(selected_ids, cfg):
@@ -429,6 +460,7 @@ def install_claude_code():
 def install_kimi():
     bin_dir, app_dir = get_install_dirs()
     node_dir = _ensure_node(app_dir)
+    _ensure_gitbash(app_dir)
     npm_bin = _npm_bin(node_dir)
 
     tgz = _find_payload_tgz("moonshot-ai-kimi-code")

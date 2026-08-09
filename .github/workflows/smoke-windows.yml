@@ -49,6 +49,12 @@ jobs:
         shell: bash
         run: |
           curl -sL "https://nodejs.org/dist/v22.20.0/node-v22.20.0-win-x64.zip" -o payload/node-win-x64.zip
+          curl -sL "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.3/PortableGit-2.55.0.3-64-bit.7z.exe" -o portablegit.7z.exe
+          mkdir -p gitbash
+          "/c/Program Files/7-Zip/7z.exe" x -o"gitbash" portablegit.7z.exe "usr/bin/*" "etc/*" -y
+          cd gitbash
+          powershell -Command "Compress-Archive -Path * -DestinationPath ../payload/gitbash-win-x64.zip -Force"
+          cd ..
           curl -sL "https://github.com/openai/codex/releases/download/rust-v0.144.5/codex-x86_64-pc-windows-msvc.exe" -o codex.exe
           powershell -Command "Compress-Archive -Path codex.exe -DestinationPath payload/codex-win-x64.zip -Force"
           cd payload

@@ -70,6 +70,16 @@ jobs:
         run: |
           curl -sL "https://nodejs.org/dist/v22.20.0/node-v22.20.0-win-x64.zip" -o payload/node-win-x64.zip
 
+          # Kimi Code hard-requires Git Bash on Windows. MinGit has no bash, so
+          # pull PortableGit and keep only usr/bin + etc (~15MB zipped) — enough
+          # for bash.exe and coreutils, without the 400MB full Git.
+          curl -sL "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.3/PortableGit-2.55.0.3-64-bit.7z.exe" -o portablegit.7z.exe
+          mkdir -p gitbash
+          "/c/Program Files/7-Zip/7z.exe" x -o"gitbash" portablegit.7z.exe "usr/bin/*" "etc/*" -y
+          cd gitbash
+          powershell -Command "Compress-Archive -Path * -DestinationPath ../payload/gitbash-win-x64.zip -Force"
+          cd ..
+
           cd payload
           CC_VERSION=$(npm view @anthropic-ai/claude-code version)
           npm pack @anthropic-ai/claude-code-win32-x64@$CC_VERSION
