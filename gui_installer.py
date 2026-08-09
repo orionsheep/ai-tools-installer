@@ -133,12 +133,32 @@ def install_codex():
 # ---------------------------------------------------------------------------
 # Shared helpers for the Node.js-based tools (Claude Code, Gemini, Kimi, Lark)
 # ---------------------------------------------------------------------------
+NODE_MIN_MAJOR = 22  # kimi-code requires Node >= 22.19
+
+
+def _node_major_version(node_dir):
+    """Major version of an extracted runtime, or None if it won't run."""
+    node_exe = os.path.join(node_dir, "node.exe" if IS_WIN else "bin/node")
+    try:
+        out = subprocess.run([node_exe, "--version"], capture_output=True,
+                             text=True, timeout=15,
+                             creationflags=_NO_WINDOW_FLAGS)
+        return int(out.stdout.strip().lstrip("v").split(".")[0])
+    except Exception:
+        return None
+
+
 def _ensure_node(app_dir):
-    """Extract the bundled portable Node.js runtime once. Safe to call repeatedly."""
+    """Extract the bundled portable Node.js runtime. Re-extracts when an
+    existing runtime is too old — e.g. machines that ran an early build which
+    shipped Node 20, which kimi-code (>=22.19) silently fails on."""
     node_dir = os.path.join(app_dir, "node")
     if os.path.exists(node_dir):
-        _expose_node_runtime(node_dir)
-        return node_dir
+        major = _node_major_version(node_dir)
+        if major is not None and major >= NODE_MIN_MAJOR:
+            _expose_node_runtime(node_dir)
+            return node_dir
+        shutil.rmtree(node_dir, ignore_errors=True)
 
     if IS_MAC:
         filename = "node-mac-arm64.tar.gz" if IS_ARM else "node-mac-x64.tar.gz"
