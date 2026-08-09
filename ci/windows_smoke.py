@@ -12,6 +12,11 @@ import os
 import subprocess
 import sys
 
+# Runner consoles are cp1252 — tool output contains emoji/CJK. Never let
+# printing the log crash the test itself.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
