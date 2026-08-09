@@ -17,7 +17,14 @@
 ```
 gui_installer.py            # 全部安装 + 配置 + GUI 逻辑（单文件，~1000 行，Python/tkinter）
 .github/workflows/build.yml # 构建配方：下载 payload → 注入 secret → PyInstaller → 发 Release
+ci/windows_smoke.py         # 端到端冒烟测试脚本（真机 Windows 上跑真实安装 + 真实调模型）
+.github/workflows/smoke-windows.yml # 每次打 tag 自动在干净 Windows 机器上跑冒烟测试
 ```
+
+冒烟测试很关键：它在一台全新的 Windows runner 上调用 gui_installer.py 里
+真实的 install_* / configure_* 函数，再分别跑 `codex exec`、`claude -p`、
+`kimi -p` 真实请求模型。任何 Windows 特有的破坏（PATH shim、沙箱弹窗、
+npm 残留）都会让 CI 变红。改完代码先看这个 workflow 绿了再发版。
 
 其余文件（LICENSE / CHANGELOG / assets）均来自上游，基本不用动。
 

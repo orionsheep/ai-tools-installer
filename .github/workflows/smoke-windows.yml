@@ -1,0 +1,59 @@
+name: Windows Smoke Test
+
+# End-to-end test on a CLEAN Windows machine (fresh runner): installs all three
+# tools from the payload, applies the builtin LLM config, and runs each CLI
+# non-interactively against the relay. Catches Windows-only breakage (PATH
+# shims, sandbox prompts, stale npm state) that no amount of local Mac testing
+# can see.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  smoke:
+    name: Clean-machine end-to-end test (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node.js (for npm pack)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Inject builtin LLM config (from secret)
+        env:
+          BUILTIN_LLM_CONFIG: ${{ secrets.BUILTIN_LLM_CONFIG }}
+        shell: bash
+        run: |
+          mkdir -p payload
+          if [ -n "$BUILTIN_LLM_CONFIG" ]; then
+            printf '%s' "$BUILTIN_LLM_CONFIG" > payload/builtin_config.json
+            echo "builtin LLM config injected"
+          else
+            echo "::error::no BUILTIN_LLM_CONFIG secret"
+            exit 1
+          fi
+
+      - name: Download Windows payloads
+        shell: bash
+        run: |
+          curl -sL "https://nodejs.org/dist/v22.20.0/node-v22.20.0-win-x64.zip" -o payload/node-win-x64.zip
+          curl -sL "https://github.com/openai/codex/releases/download/rust-v0.144.5/codex-x86_64-pc-windows-msvc.exe" -o codex.exe
+          powershell -Command "Compress-Archive -Path codex.exe -DestinationPath payload/codex-win-x64.zip -Force"
+          cd payload
+          CC_VERSION=$(npm view @anthropic-ai/claude-code version)
+          npm pack @anthropic-ai/claude-code-win32-x64@$CC_VERSION
+          npm pack @moonshot-ai/kimi-code
+
+      - name: Run end-to-end smoke test
+        run: python ci/windows_smoke.py

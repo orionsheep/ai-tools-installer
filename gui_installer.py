@@ -271,6 +271,11 @@ def configure_codex(cfg):
     toml = (
         f'model = "{cfg.get("codex_model", cfg["model"])}"\n'
         f'model_provider = "relay"\n'
+        # The default read-only sandbox needs a per-machine admin sandbox setup
+        # on Windows that fails on fresh machines with a blocking interactive
+        # prompt; full access skips it (Claude Code likewise skips its
+        # permission prompts via skipDangerousModePermissionPrompt).
+        f'sandbox_mode = "danger-full-access"\n'
         f"\n"
         f'[model_providers.relay]\n'
         f'name = "{cfg["name"]}"\n'
@@ -397,6 +402,16 @@ def install_kimi():
     tgz = _find_payload_tgz("moonshot-ai-kimi-code")
     if not tgz:
         raise Exception("Kimi Code CLI npm package not found in payload.")
+
+    # Wipe leftovers from a previous failed install: npm's rollback can leave a
+    # partial package tree behind, and reinstalling over it yields a broken CLI
+    # that exits silently on launch.
+    shutil.rmtree(os.path.join(node_dir, "node_modules", "@moonshot-ai"),
+                  ignore_errors=True)
+    for shim in ("kimi", "kimi.cmd"):
+        stale_shim = os.path.join(node_dir, shim)
+        if os.path.exists(stale_shim):
+            os.remove(stale_shim)
 
     _run_npm([npm_bin, "install", "-g", "--prefix", node_dir, tgz], _npm_env(node_dir))
     _expose_shim(bin_dir, node_dir, "kimi")
